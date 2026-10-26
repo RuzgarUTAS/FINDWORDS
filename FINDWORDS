@@ -1,0 +1,923 @@
+```react
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  signInWithCustomToken, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  updateDoc 
+} from 'firebase/firestore';
+import { 
+  Shield, 
+  Users, 
+  Crown, 
+  Copy, 
+  Check, 
+  RefreshCw, 
+  Sparkles, 
+  Volume2, 
+  VolumeX, 
+  LogOut, 
+  Play, 
+  Award, 
+  Eye, 
+  EyeOff, 
+  Send,
+  HelpCircle,
+  Zap,
+  Flame,
+  UserCheck
+} from 'lucide-react';
+
+// Initialize Firebase configuration from environment
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+  ? JSON.parse(__firebase_config) 
+  : {
+      apiKey: "demo-api-key",
+      authDomain: "demo-app.firebaseapp.com",
+      projectId: "demo-app",
+      storageBucket: "demo-app.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "1:123456789:web:demo"
+    };
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'codenames-de-app';
+
+// Rich German word bank containing nouns across diverse categories
+const GERMAN_WORDS = [
+  "Apfel", "Hund", "Haus", "Buch", "Sonne", "Wasser", "Baum", "Schule", "Katze", "Auto",
+  "Musik", "Zeit", "Feuer", "Stadt", "Freund", "Vogel", "Blume", "Tisch", "Stuhl", "Berg",
+  "Fluss", "Nacht", "Licht", "Brot", "Milch", "Kaffee", "Käse", "Mond", "Stern", "Wolke",
+  "Regen", "Schnee", "Wind", "Meer", "Strand", "Wald", "Wiese", "Garten", "Fenster", "Tür",
+  "Schlüssel", "Tasche", "Uhr", "Spiegel", "Bild", "Papier", "Stift", "Zimmer", "Küche", "Bett",
+  "Schrank", "Lampe", "Teppich", "Brücke", "Straße", "Zug", "Flugzeug", "Fahrrad", "Schiff", "Insel",
+  "König", "Königin", "Schloss", "Schwert", "Schild", "Gold", "Silber", "Stein", "Erde", "Feuerwerk",
+  "Kuchen", "Zucker", "Salz", "Apfelsine", "Banane", "Schokolade", "Tee", "Saft", "Bier", "Wein",
+  "Sommer", "Winter", "Frühling", "Herbst", "Morgen", "Abend", "Mittag", "Traum", "Herz", "Auge",
+  "Hand", "Kopf", "Fuß", "Mund", "Nase", "Ohr", "Haar", "Zahn", "Finger", "Rücken",
+  "Brille", "Schuh", "Hut", "Mantel", "Hose", "Hemd", "Kleid", "Gürtel", "Ring", "Kette"
+];
+
+// Color palette options for teams
+const TEAM_COLOR_OPTIONS = [
+  { name: 'Kırmızı', value: '#ef4444', bg: 'bg-red-600', text: 'text-red-400', border: 'border-red-500', shadow: 'shadow-red-900/40', activeBg: 'bg-red-500' },
+  { name: 'Mavi', value: '#3b82f6', bg: 'bg-blue-600', text: 'text-blue-400', border: 'border-blue-500', shadow: 'shadow-blue-900/40', activeBg: 'bg-blue-500' },
+  { name: 'Yeşil', value: '#10b981', bg: 'bg-emerald-600', text: 'text-emerald-400', border: 'border-emerald-500', shadow: 'shadow-emerald-900/40', activeBg: 'bg-emerald-500' },
+  { name: 'Sarı', value: '#eab308', bg: 'bg-yellow-500', text: 'text-yellow-400', border: 'border-yellow-500', shadow: 'shadow-yellow-900/40', activeBg: 'bg-yellow-400' },
+  { name: 'Turuncu', value: '#f97316', bg: 'bg-orange-500', text: 'text-orange-400', border: 'border-orange-500', shadow: 'shadow-orange-900/40', activeBg: 'bg-orange-500' },
+  { name: 'Mor', value: '#a855f7', bg: 'bg-purple-600', text: 'text-purple-400', border: 'border-purple-500', shadow: 'shadow-purple-900/40', activeBg: 'bg-purple-500' }
+];
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [roomId, setRoomId] = useState('');
+  const [inputRoomId, setInputRoomId] = useState('');
+  const [playerName, setPlayerName] = useState('');
+  const [selectedTeam, setSelectedTeam] = useState(1); // 1 or 2
+  const [selectedRole, setSelectedRole] = useState('guesser'); // 'spymaster' or 'guesser'
+  const [roomData, setRoomData] = useState(null);
+  const [clueWord, setClueWord] = useState('');
+  const [clueNumber, setClueNumber] = useState(1);
+  const [copied, setCopied] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [overrideSpymasterView, setOverrideSpymasterView] = useState(false);
+  const [showRulesModal, setShowRulesModal] = useState(false);
+
+  const audioCtxRef = useRef(null);
+
+  // Web Audio API Sound Synthesizer
+  const playSound = (type) => {
+    if (!soundEnabled) return;
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      const now = ctx.currentTime;
+
+      if (type === 'card_reveal') {
+        osc.frequency.setValueAtTime(350, now);
+        osc.frequency.exponentialRampToValueAtTime(700, now + 0.12);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+        osc.start(now);
+        osc.stop(now + 0.12);
+      } else if (type === 'wrong') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(220, now);
+        osc.frequency.setValueAtTime(140, now + 0.1);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      } else if (type === 'black_card') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.linearRampToValueAtTime(50, now + 0.6);
+        gain.gain.setValueAtTime(0.5, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+        osc.start(now);
+        osc.stop(now + 0.6);
+      } else if (type === 'win') {
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.setValueAtTime(554.37, now + 0.12);
+        osc.frequency.setValueAtTime(659.25, now + 0.24);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        osc.start(now);
+        osc.stop(now + 0.5);
+      }
+    } catch (e) {
+      // Audio context fallbacks
+    }
+  };
+
+  // Auth initialization
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth error:", err);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    return () => unsubscribe();
+  }, []);
+
+  // Room Snapshot Listener
+  useEffect(() => {
+    if (!user || !roomId) return;
+    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+    const unsubscribe = onSnapshot(
+      roomRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setRoomData(docSnap.data());
+        } else {
+          setRoomData(null);
+        }
+      },
+      (error) => console.error("Firestore listener error:", error)
+    );
+    return () => unsubscribe();
+  }, [user, roomId]);
+
+  // Helper function to build fresh random 5x5 board grid
+  const createNewBoard = () => {
+    const shuffledWords = [...GERMAN_WORDS].sort(() => 0.5 - Math.random()).slice(0, 25);
+    
+    // Distribution: Team 1 (8 cards), Team 2 (7 cards), Neutral (9 cards), Black (1 card)
+    const cardTypes = [
+      ...Array(8).fill('team1'),
+      ...Array(7).fill('team2'),
+      ...Array(9).fill('neutral'),
+      'black'
+    ].sort(() => 0.5 - Math.random());
+
+    return shuffledWords.map((word, index) => ({
+      id: index,
+      word,
+      type: cardTypes[index],
+      revealed: false
+    }));
+  };
+
+  // Create room
+  const handleCreateRoom = async () => {
+    if (!playerName.trim()) return alert('Lütfen bir takma ad girin!');
+    const newRoomCode = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const initialBoard = createNewBoard();
+
+    const initialRoomState = {
+      code: newRoomCode,
+      createdAt: Date.now(),
+      status: 'setup',
+      currentTurn: 'team1',
+      turnPhase: 'clue',
+      currentClue: null,
+      team1Color: TEAM_COLOR_OPTIONS[0], // Red
+      team2Color: TEAM_COLOR_OPTIONS[1], // Blue
+      cards: initialBoard,
+      players: {
+        [user.uid]: {
+          name: playerName.trim(),
+          team: selectedTeam,
+          role: selectedRole
+        }
+      },
+      winner: null,
+      logs: [`Oda oluşturuldu. Katılım Kodu: ${newRoomCode}`]
+    };
+
+    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', newRoomCode);
+    await setDoc(roomRef, initialRoomState);
+    setRoomId(newRoomCode);
+  };
+
+  // Join existing room
+  const handleJoinRoom = async () => {
+    if (!playerName.trim()) return alert('Lütfen takma adınızı girin!');
+    if (!inputRoomId.trim()) return alert('Lütfen oda kodunu girin!');
+
+    const code = inputRoomId.trim().toUpperCase();
+    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code);
+    
+    try {
+      await updateDoc(roomRef, {
+        [`players.${user.uid}`]: {
+          name: playerName.trim(),
+          team: selectedTeam,
+          role: selectedRole
+        },
+        logs: [`${playerName.trim()} oyuna katıldı.`]
+      });
+      setRoomId(code);
+    } catch (e) {
+      alert('Oda bulunamadı! Kodun doğru olduğundan emin olun.');
+    }
+  };
+
+  // Start or Reset Game
+  const handleStartGame = async () => {
+    if (!roomId || !roomData) return;
+    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+    const newBoard = createNewBoard();
+    
+    await updateDoc(roomRef, {
+      cards: newBoard,
+      status: 'playing',
+      currentTurn: 'team1',
+      turnPhase: 'clue',
+      currentClue: null,
+      winner: null,
+      logs: [`Yeni tur başladı! İpucu sırası: ${roomData.team1Color.name} Takım Anlatıcısında.`]
+    });
+  };
+
+  // Update team color in lobby setup
+  const handleColorChange = async (teamKey, colorObj) => {
+    if (!roomId) return;
+    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+    await updateDoc(roomRef, {
+      [teamKey]: colorObj
+    });
+  };
+
+  // Spymaster gives clue
+  const handleSubmitClue = async (e) => {
+    e.preventDefault();
+    if (!clueWord.trim()) return;
+
+    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+    const currentTeamName = roomData.currentTurn === 'team1' ? roomData.team1Color.name : roomData.team2Color.name;
+    
+    const updatedLogs = [
+      `💡 ${currentTeamName} Anlatıcısı ipucu verdi: "${clueWord.toUpperCase()}" (${clueNumber} Tahmin)`,
+      ...(roomData.logs || [])
+    ];
+
+    await updateDoc(roomRef, {
+      turnPhase: 'guessing',
+      currentClue: {
+        word: clueWord.trim().toUpperCase(),
+        number: parseInt(clueNumber),
+        remainingGuesses: parseInt(clueNumber) + 1 // Codenames rules allow +1 extra guess
+      },
+      logs: updatedLogs
+    });
+
+    setClueWord('');
+  };
+
+  // End Turn manually (Pass)
+  const handleEndTurn = async () => {
+    if (!roomId || !roomData) return;
+    const nextTurn = roomData.currentTurn === 'team1' ? 'team2' : 'team1';
+    const nextTeamName = nextTurn === 'team1' ? roomData.team1Color.name : roomData.team2Color.name;
+
+    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+    await updateDoc(roomRef, {
+      currentTurn: nextTurn,
+      turnPhase: 'clue',
+      currentClue: null,
+      logs: [`⏭️ Tur pas geçildi. Sıra ${nextTeamName} Takımda.`, ...(roomData.logs || [])]
+    });
+  };
+
+  // Card click & Codenames game logic
+  const handleCardClick = async (cardIndex) => {
+    if (!roomData || roomData.status !== 'playing') return;
+    const myPlayer = roomData.players[user.uid];
+    
+    const isMyTeamTurn = (myPlayer?.team === 1 && roomData.currentTurn === 'team1') || 
+                         (myPlayer?.team === 2 && roomData.currentTurn === 'team2');
+
+    // Only active guessers on their turn can click
+    if (!isMyTeamTurn || roomData.turnPhase !== 'guessing' || myPlayer?.role === 'spymaster') return;
+
+    const card = roomData.cards[cardIndex];
+    if (card.revealed) return;
+
+    const updatedCards = [...roomData.cards];
+    updatedCards[cardIndex] = { ...card, revealed: true };
+
+    const currentTeamKey = roomData.currentTurn;
+    const oppositeTeamKey = currentTeamKey === 'team1' ? 'team2' : 'team1';
+    const currentTeamName = currentTeamKey === 'team1' ? roomData.team1Color.name : roomData.team2Color.name;
+    const oppositeTeamName = oppositeTeamKey === 'team1' ? roomData.team1Color.name : roomData.team2Color.name;
+
+    let newStatus = roomData.status;
+    let newWinner = roomData.winner;
+    let nextTurn = currentTeamKey;
+    let nextTurnPhase = 'guessing';
+    let newClue = roomData.currentClue ? { ...roomData.currentClue } : null;
+    let logMessage = '';
+
+    // RULE 1: BLACK CARD (ASSASSIN) -> INSTANT LOSS
+    if (card.type === 'black') {
+      playSound('black_card');
+      newStatus = 'finished';
+      newWinner = oppositeTeamKey;
+      logMessage = `💣 SİYAH (ÖLÜMCÜL) KART AÇILDI! ${currentTeamName} Takım kaybetti. Kazanan: ${oppositeTeamName} Takım!`;
+    }
+    // RULE 2: OWN TEAM CARD
+    else if (card.type === currentTeamKey) {
+      playSound('card_reveal');
+      logMessage = `✨ ${currentTeamName} Takım kendi kelimesini buldu: "${card.word}"`;
+
+      const remainingOwnCards = updatedCards.filter(c => c.type === currentTeamKey && !c.revealed).length;
+      if (remainingOwnCards === 0) {
+        playSound('win');
+        newStatus = 'finished';
+        newWinner = currentTeamKey;
+        logMessage = `🎉 TEBRİKLER! ${currentTeamName} Takım tüm kelimelerini açarak oyunu KAZANDI!`;
+      } else if (newClue) {
+        newClue.remainingGuesses -= 1;
+        if (newClue.remainingGuesses <= 0) {
+          nextTurn = oppositeTeamKey;
+          nextTurnPhase = 'clue';
+          newClue = null;
+          logMessage += ` (Tahmin hakları doldu, sıra ${oppositeTeamName} Takıma geçti)`;
+        }
+      }
+    }
+    // RULE 3: OPPONENT TEAM CARD -> 1 POINT TO OPPONENT & PASS TURN
+    else if (card.type === oppositeTeamKey) {
+      playSound('wrong');
+      logMessage = `⚠️ RAKİP KART! ${currentTeamName} Takım rakibin ("${card.word}") kelimesini açtı. ${oppositeTeamName} Takım 1 puan kazandı ve sıra onlara geçti!`;
+      
+      const remainingOppositeCards = updatedCards.filter(c => c.type === oppositeTeamKey && !c.revealed).length;
+      if (remainingOppositeCards === 0) {
+        playSound('win');
+        newStatus = 'finished';
+        newWinner = oppositeTeamKey;
+        logMessage += ` 🎉 Bu hata ile ${oppositeTeamName} Takım oyunu kazandı!`;
+      } else {
+        nextTurn = oppositeTeamKey;
+        nextTurnPhase = 'clue';
+        newClue = null;
+      }
+    }
+    // RULE 4: NEUTRAL WHITE CARD -> PASS TURN
+    else if (card.type === 'neutral') {
+      playSound('wrong');
+      logMessage = `⚪ NÖTR KART! ${currentTeamName} Takım pas kartı açtı ("${card.word}"). Sıra ${oppositeTeamName} Takıma geçti.`;
+      nextTurn = oppositeTeamKey;
+      nextTurnPhase = 'clue';
+      newClue = null;
+    }
+
+    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+    await updateDoc(roomRef, {
+      cards: updatedCards,
+      status: newStatus,
+      winner: newWinner,
+      currentTurn: nextTurn,
+      turnPhase: nextTurnPhase,
+      currentClue: newClue,
+      logs: [logMessage, ...(roomData.logs || [])]
+    });
+  };
+
+  const copyRoomCode = () => {
+    navigator.clipboard.writeText(roomId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const getRemainingCardsCount = (teamKey) => {
+    if (!roomData || !roomData.cards) return 0;
+    return roomData.cards.filter(c => c.type === teamKey && !c.revealed).length;
+  };
+
+  const currentUserRole = roomData?.players[user?.uid]?.role;
+  const isSpymaster = currentUserRole === 'spymaster' || overrideSpymasterView;
+
+  // LOBBY & ENTRY SCREEN
+  if (!roomId || !roomData) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+        {/* Background glow accents */}
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 backdrop-blur-xl rounded-3xl shadow-2xl p-6 md:p-8 space-y-6 z-10">
+          <div className="text-center space-y-2">
+            <div className="inline-flex p-3 bg-gradient-to-br from-amber-400/20 to-orange-500/20 border border-amber-500/30 rounded-2xl text-amber-400 mb-1 shadow-inner">
+              <Crown className="w-10 h-10 animate-pulse" />
+            </div>
+            <h1 className="text-3xl font-black tracking-tight bg-gradient-to-r from-amber-400 via-orange-400 to-red-400 bg-clip-text text-transparent">
+              Codenames DE
+            </h1>
+            <p className="text-slate-400 text-xs md:text-sm">
+              Almanca Kelimeli Canlı Online Gizli Ajan Oyunu
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                Oyuncu Adınız
+              </label>
+              <input
+                type="text"
+                placeholder="Örn: Elraenn, Jahrein..."
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-amber-500 transition shadow-inner"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  Takımınız
+                </label>
+                <div className="flex rounded-xl overflow-hidden border border-slate-800 bg-slate-950 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTeam(1)}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${
+                      selectedTeam === 1 ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Takım 1
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTeam(2)}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${
+                      selectedTeam === 2 ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Takım 2
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  Rolünüz
+                </label>
+                <div className="flex rounded-xl overflow-hidden border border-slate-800 bg-slate-950 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRole('spymaster')}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${
+                      selectedRole === 'spymaster' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Anlatıcı
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRole('guesser')}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${
+                      selectedRole === 'guesser' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Tahminci
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80 space-y-3">
+              <button
+                onClick={handleCreateRoom}
+                className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-black py-3.5 px-4 rounded-xl shadow-xl transition transform hover:-translate-y-0.5 flex items-center justify-center space-x-2"
+              >
+                <Sparkles className="w-5 h-5" />
+                <span>Yeni Oda Oluştur</span>
+              </button>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  placeholder="Oda Kodu (örn: X7K2P)"
+                  value={inputRoomId}
+                  onChange={(e) => setInputRoomId(e.target.value)}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 uppercase focus:outline-none focus:border-amber-500 transition shadow-inner"
+                />
+                <button
+                  onClick={handleJoinRoom}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold py-3 px-5 rounded-xl border border-slate-700 transition shadow"
+                >
+                  Katıl
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // MAIN GAME BOARD VIEW
+  const currentTeamObj = roomData.currentTurn === 'team1' ? roomData.team1Color : roomData.team2Color;
+  const isMyTurnToPlay = (roomData.players[user.uid]?.team === 1 && roomData.currentTurn === 'team1') ||
+                         (roomData.players[user.uid]?.team === 2 && roomData.currentTurn === 'team2');
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+      {/* HEADER NAVBAR */}
+      <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-30 shadow-md backdrop-blur">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <h1 className="text-xl font-black tracking-tight text-amber-400 flex items-center space-x-2">
+              <Crown className="w-6 h-6 text-amber-400" />
+              <span>Codenames DE</span>
+            </h1>
+
+            <button
+              onClick={copyRoomCode}
+              className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-300 transition"
+            >
+              <span>Oda: <strong>{roomData.code}</strong></span>
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+
+          {/* TEAM SCORES */}
+          <div className="flex items-center space-x-4">
+            <div className={`flex items-center space-x-2 px-4 py-1.5 rounded-xl border ${roomData.team1Color.border} bg-slate-950 shadow-inner`}>
+              <span className={`w-3 h-3 rounded-full ${roomData.team1Color.bg}`} />
+              <span className="text-xs font-bold text-slate-300">{roomData.team1Color.name}:</span>
+              <span className="text-base font-black text-white">{getRemainingCardsCount('team1')} Kalan</span>
+            </div>
+
+            <span className="text-slate-600 font-black text-xs">VS</span>
+
+            <div className={`flex items-center space-x-2 px-4 py-1.5 rounded-xl border ${roomData.team2Color.border} bg-slate-950 shadow-inner`}>
+              <span className={`w-3 h-3 rounded-full ${roomData.team2Color.bg}`} />
+              <span className="text-xs font-bold text-slate-300">{roomData.team2Color.name}:</span>
+              <span className="text-base font-black text-white">{getRemainingCardsCount('team2')} Kalan</span>
+            </div>
+          </div>
+
+          {/* CONTROLS */}
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setShowRulesModal(true)}
+              className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-300 transition"
+              title="Kurallar"
+            >
+              <HelpCircle className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={() => setOverrideSpymasterView(!overrideSpymasterView)}
+              title="Anlatıcı görünümü modunu test et"
+              className={`p-2 rounded-xl border transition ${
+                overrideSpymasterView 
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-400' 
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              {overrideSpymasterView ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+            </button>
+
+            <button
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-300 transition"
+            >
+              {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+            </button>
+
+            <button
+              onClick={() => setRoomId('')}
+              className="p-2 bg-slate-800 hover:bg-red-500/20 hover:text-red-400 border border-slate-700 rounded-xl text-slate-400 transition"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* SETUP STAGE: COLOR PICKER */}
+      {roomData.status === 'setup' && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-slate-900 to-amber-500/10 border-b border-amber-500/20 p-4 text-center">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <h2 className="text-lg font-bold text-amber-400 flex items-center justify-center space-x-2">
+              <Sparkles className="w-5 h-5" />
+              <span>Oyun Kurulumu: Takım Renklerini Seçin</span>
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+              <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 space-y-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Takım 1 Rengi</span>
+                <div className="flex flex-wrap gap-2">
+                  {TEAM_COLOR_OPTIONS.map((c) => (
+                    <button
+                      key={c.name}
+                      onClick={() => handleColorChange('team1Color', c)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${c.bg} text-white ${
+                        roomData.team1Color.name === c.name ? 'ring-2 ring-white scale-105' : 'opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 space-y-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Takım 2 Rengi</span>
+                <div className="flex flex-wrap gap-2">
+                  {TEAM_COLOR_OPTIONS.map((c) => (
+                    <button
+                      key={c.name}
+                      onClick={() => handleColorChange('team2Color', c)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${c.bg} text-white ${
+                        roomData.team2Color.name === c.name ? 'ring-2 ring-white scale-105' : 'opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={handleStartGame}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-8 py-3 rounded-xl shadow-lg transition transform hover:-translate-y-0.5"
+            >
+              Oyunu Başlat!
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* GAME OVER BANNER */}
+      {roomData.status === 'finished' && (
+        <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 p-4 text-center shadow-xl animate-fade-in">
+          <div className="max-w-3xl mx-auto flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Award className="w-8 h-8 text-yellow-300 animate-bounce" />
+              <div className="text-left">
+                <h3 className="text-xl font-black text-white">
+                  OYUN BİTTİ! KAZANAN: {roomData.winner === 'team1' ? roomData.team1Color.name : roomData.team2Color.name} Takım!
+                </h3>
+                <p className="text-amber-100 text-xs">Tebrikler, harika bir oyundu!</p>
+              </div>
+            </div>
+            <button
+              onClick={handleStartGame}
+              className="bg-slate-950 hover:bg-slate-900 text-white font-bold px-4 py-2.5 rounded-xl text-sm border border-slate-700 transition flex items-center space-x-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Yeniden Başlat</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* TURN BAR */}
+      <div className="bg-slate-900/60 border-b border-slate-800/80 px-4 py-3">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sıra:</span>
+            <div className={`px-3 py-1 rounded-lg text-xs font-bold text-white ${currentTeamObj.bg} flex items-center space-x-2 shadow`}>
+              <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+              <span>{currentTeamObj.name} Takım</span>
+            </div>
+            <span className="text-xs text-slate-400">
+              ({roomData.turnPhase === 'clue' ? 'Anlatıcının İpucu Vermesi Bekleniyor' : 'Tahminciler Kart Seçiyor'})
+            </span>
+          </div>
+
+          {/* SPYMASTER INPUT FORM OR ACTIVE CLUE */}
+          {roomData.turnPhase === 'clue' && isMyTurnToPlay && roomData.players[user.uid]?.role === 'spymaster' ? (
+            <form onSubmit={handleSubmitClue} className="flex items-center space-x-2">
+              <input
+                type="text"
+                placeholder="İpucu kelimesi..."
+                value={clueWord}
+                onChange={(e) => setClueWord(e.target.value)}
+                className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:border-amber-500"
+              />
+              <select
+                value={clueNumber}
+                onChange={(e) => setClueNumber(e.target.value)}
+                className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-sm focus:outline-none"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
+                  <option key={num} value={num}>{num} Kelime</option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-4 py-1.5 rounded-xl text-sm transition flex items-center space-x-1"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Gönder</span>
+              </button>
+            </form>
+          ) : roomData.currentClue ? (
+            <div className="flex items-center space-x-3 bg-slate-950 px-4 py-1.5 rounded-xl border border-slate-800">
+              <span className="text-xs text-slate-400">Aktif İpucu:</span>
+              <span className="text-sm font-extrabold text-amber-400">"{roomData.currentClue.word}"</span>
+              <span className="text-xs bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded">
+                Kalan Tahmin: {roomData.currentClue.remainingGuesses}
+              </span>
+              {isMyTurnToPlay && roomData.players[user.uid]?.role === 'guesser' && (
+                <button
+                  onClick={handleEndTurn}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-1 rounded-lg border border-slate-700 ml-2"
+                >
+                  Turu Pas Geç
+                </button>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* MAIN CONTAINER */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* LEFT PANEL */}
+        <div className="lg:col-span-1 space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4 shadow-lg">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Oyuncular</span>
+              <Users className="w-4 h-4 text-slate-500" />
+            </h3>
+            <div className="space-y-2">
+              {Object.entries(roomData.players || {}).map(([id, player]) => {
+                const isCurrent = id === user.uid;
+                const pTeamColor = player.team === 1 ? roomData.team1Color : roomData.team2Color;
+
+                return (
+                  <div
+                    key={id}
+                    className={`flex items-center justify-between p-2.5 rounded-xl border ${
+                      isCurrent ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-950/50 border-slate-800/50'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${pTeamColor.bg}`} />
+                      <span className="text-xs font-bold text-slate-200">
+                        {player.name} {isCurrent && '(Sen)'}
+                      </span>
+                    </div>
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                      player.role === 'spymaster' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      {player.role === 'spymaster' ? 'Anlatıcı' : 'Tahminci'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* LOGS PANEL */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-lg">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Oyun Günlüğü</h3>
+            <div className="h-48 overflow-y-auto space-y-1.5 pr-1 text-xs text-slate-400 scrollbar-thin">
+              {(roomData.logs || []).map((log, idx) => (
+                <div key={idx} className="p-2 bg-slate-950/60 rounded-xl border border-slate-800/40 leading-relaxed">
+                  {log}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 5x5 BOARD GRID */}
+        <div className="lg:col-span-3">
+          <div className="grid grid-cols-5 gap-2 md:gap-3">
+            {(roomData.cards || []).map((card, idx) => {
+              let cardBg = 'bg-slate-900 hover:bg-slate-800/80 border-slate-800 text-slate-200';
+              let overlayBadge = null;
+
+              if (card.revealed) {
+                if (card.type === 'team1') {
+                  cardBg = `${roomData.team1Color.bg} text-white border-transparent shadow-lg scale-95 opacity-90`;
+                } else if (card.type === 'team2') {
+                  cardBg = `${roomData.team2Color.bg} text-white border-transparent shadow-lg scale-95 opacity-90`;
+                } else if (card.type === 'neutral') {
+                  cardBg = 'bg-slate-800 text-slate-400 border-slate-700 scale-95';
+                } else if (card.type === 'black') {
+                  cardBg = 'bg-red-950 border-red-800 text-red-200 scale-95';
+                  overlayBadge = '☠️';
+                }
+              } else if (isSpymaster) {
+                if (card.type === 'team1') {
+                  cardBg = `bg-slate-900 border-2 ${roomData.team1Color.border} text-slate-100 shadow-md`;
+                  overlayBadge = <span className={`w-3 h-3 rounded-full ${roomData.team1Color.bg}`} />;
+                } else if (card.type === 'team2') {
+                  cardBg = `bg-slate-900 border-2 ${roomData.team2Color.border} text-slate-100 shadow-md`;
+                  overlayBadge = <span className={`w-3 h-3 rounded-full ${roomData.team2Color.bg}`} />;
+                } else if (card.type === 'neutral') {
+                  cardBg = 'bg-slate-900 border border-slate-800 text-slate-500 opacity-70';
+                  overlayBadge = <span className="w-2 rounded-full bg-slate-600" />;
+                } else if (card.type === 'black') {
+                  cardBg = 'bg-slate-900 border-2 border-red-600 text-red-400 shadow-lg';
+                  overlayBadge = <span className="text-xs">💣</span>;
+                }
+              }
+
+              return (
+                <button
+                  key={idx}
+                  onClick={() => handleCardClick(idx)}
+                  disabled={card.revealed || roomData.status !== 'playing' || !isMyTurnToPlay || currentUserRole === 'spymaster'}
+                  className={`relative aspect-[4/3] rounded-2xl font-black text-xs md:text-sm border p-2 flex flex-col items-center justify-center text-center transition-all transform active:scale-95 ${cardBg} ${
+                    !card.revealed && isMyTurnToPlay && currentUserRole !== 'spymaster' ? 'cursor-pointer hover:-translate-y-0.5 shadow-md' : 'cursor-default'
+                  }`}
+                >
+                  {overlayBadge && (
+                    <div className="absolute top-2 right-2">
+                      {overlayBadge}
+                    </div>
+                  )}
+
+                  <span className="tracking-wide uppercase select-none drop-shadow">
+                    {card.word}
+                  </span>
+
+                  {card.revealed && (
+                    <span className="text-[10px] font-mono opacity-80 mt-1 uppercase tracking-widest">
+                      {card.type === 'team1' ? roomData.team1Color.name : card.type === 'team2' ? roomData.team2Color.name : card.type === 'neutral' ? 'Nötr' : 'Siyah'}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </main>
+
+      {/* RULES MODAL */}
+      {showRulesModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 max-w-lg w-full rounded-3xl p-6 space-y-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-amber-400 flex items-center space-x-2">
+              <HelpCircle className="w-5 h-5" />
+              <span>Oyun Kuralları (Codenames)</span>
+            </h3>
+            <div className="text-xs text-slate-300 space-y-2 leading-relaxed max-h-80 overflow-y-auto pr-2">
+              <p>1. <strong>Anlatıcılar (Spymasters):</strong> Kartların gizli renklerini görür. Kendi takımlarına tek bir ipucu kelimesi ve bu kelimeyle ilişkili kart sayısını söyler.</p>
+              <p>2. <strong>Kendi Rengin:</strong> Kendi renkli kartınızı bulduğunuzda skorunuz düşer ve ipucu sayısı + 1 hak kadar tahmin yapmaya devam edebilirsiniz.</p>
+              <p>3. <strong>Rakip Rengi:</strong> Yanlışlıkla rakip takımın kartını açarsanız, rakip takıma 1 puan yazılır ve sıra derhal rakibe geçer.</p>
+              <p>4. <strong>Nötr (Beyaz) Kart:</strong> Pas kartıdır, açıldığında sıra rakibe geçer.</p>
+              <p>5. <strong>Siyah (Ölümcül) Kart:</strong> Siyah kartı açan takım <u>ANINDA OYUNU KAYBEDER!</u></p>
+            </div>
+            <button
+              onClick={() => setShowRulesModal(false)}
+              className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-xs transition"
+            >
+              Kapat
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
